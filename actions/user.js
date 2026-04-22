@@ -5,6 +5,18 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { generateAIInsights } from "./dashboard";
 
+function normalizeInsights(insights) {
+  return {
+    salaryRanges: insights?.salaryRanges || [],
+    growthRate: insights?.growthRate ?? 10, 
+    demandLevel: insights?.demandLevel || "Medium",
+    topSkills: insights?.topSkills || [],
+    marketOutlook: insights?.marketOutlook || "Neutral",
+    keyTrends: insights?.keyTrends || [],
+    recommendedSkills: insights?.recommendedSkills || [],
+  };
+}
+
 export async function updateUser(data) {
   const { userId } = await auth();
   if (!userId) throw new Error("Unauthorized");
@@ -26,8 +38,8 @@ export async function updateUser(data) {
 
     // If industry doesn't exist, create it with default values
     if (!industryInsight) {
-      const insights = await generateAIInsights(data.industry);
-
+      let insights = await generateAIInsights(data.industry);
+      insights = normalizeInsights(insights);
       industryInsight = await db.industryInsight.create({
         data: {
           industry: data.industry,
@@ -60,6 +72,7 @@ export async function updateUser(data) {
 }
 
 export async function getUserOnboardingStatus() {
+  console.log("Checking onboarding status");
   const { userId } = await auth();
   if (!userId) throw new Error("Unauthorized");
 

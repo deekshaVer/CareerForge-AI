@@ -122,9 +122,9 @@ export default function ResumeBuilder({ initialContent }) {
         html2canvas: { scale: 2 },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
       };
-      const html2pdf = (await import("html2pdf.js")).default
+      const html2pdf = (await import("html2pdf.js")).default;
 
-       html2pdf().set(opt).from(element).save();
+      html2pdf().set(opt).from(element).save();
     } catch (error) {
       console.error("PDF generation error:", error);
     } finally {

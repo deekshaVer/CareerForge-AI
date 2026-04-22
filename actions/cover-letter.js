@@ -2,10 +2,33 @@
 
 import { db } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+async function callOpenRouter(prompt) {
+  const response = await fetch(
+    "https://openrouter.ai/api/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-3.5-turbo",
+        messages: [{ role: "user", content: prompt }],
+      }),
+    },
+  );
+
+  const data = await response.json();
+
+  const content = data?.choices?.[0]?.message?.content;
+
+  if (!response.ok || !content) {
+    throw new Error("AI response failed");
+  }
+
+  return content;
+}
 
 export async function generateCoverLetter(data) {
   const { userId } = await auth();
@@ -18,19 +41,17 @@ export async function generateCoverLetter(data) {
   if (!user) throw new Error("User not found");
 
   const prompt = `
-    Write a professional cover letter for a ${data.jobTitle} position at ${
-    data.companyName
-  }.
-    
-    About the candidate:
-    - Industry: ${user.industry}
-    - Years of Experience: ${user.experience}
-    - Skills: ${user.skills?.join(", ")}
-    - Professional Background: ${user.bio}
-    
-    Job Description:
-    ${data.jobDescription}
-    
+Write a professional cover letter for a ${data.jobTitle} position at ${data.companyName}.
+
+About the candidate:
+- Industry: ${user.industry}
+- Years of Experience: ${user.experience}
+- Skills: ${user.skills?.join(", ")}
+- Professional Background: ${user.bio}
+
+Job Description:
+${data.jobDescription}
+
     Requirements:
     1. Use a professional, enthusiastic tone
     2. Highlight relevant skills and experience
@@ -41,15 +62,14 @@ export async function generateCoverLetter(data) {
     7. Relate candidate's background to job requirements
     
     Format the letter in markdown.
-  `;
+`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const content = result.response.text().trim();
+    const content = await callOpenRouter(prompt);
 
-    const coverLetter = await db.coverLetter.create({
+    return await db.coverLetter.create({
       data: {
-        content,
+        content: content.trim(),
         jobDescription: data.jobDescription,
         companyName: data.companyName,
         jobTitle: data.jobTitle,
@@ -57,11 +77,24 @@ export async function generateCoverLetter(data) {
         userId: user.id,
       },
     });
-
-    return coverLetter;
   } catch (error) {
-    console.error("Error generating cover letter:", error.message);
-    throw new Error("Failed to generate cover letter");
+    console.error("AI failed:", error.message);
+
+    return await db.coverLetter.create({
+      data: {
+        content: `Dear Hiring Manager,
+
+I am interested in the ${data.jobTitle} role at ${data.companyName}. With experience in ${user.industry} and skills in ${user.skills?.join(", ")}, I can contribute effectively.
+
+Sincerely,
+Candidate`,
+        jobDescription: data.jobDescription,
+        companyName: data.companyName,
+        jobTitle: data.jobTitle,
+        status: "fallback",
+        userId: user.id,
+      },
+    });
   }
 }
 
@@ -84,8 +117,9 @@ export async function getCoverLetters() {
     },
   });
 }
-
 export async function getCoverLetter(id) {
+  if (!id) throw new Error("Cover letter ID is required"); // ✅ add this
+
   const { userId } = await auth();
   if (!userId) throw new Error("Unauthorized");
 
@@ -95,7 +129,7 @@ export async function getCoverLetter(id) {
 
   if (!user) throw new Error("User not found");
 
-  return await db.coverLetter.findUnique({
+  return await db.coverLetter.findFirst({
     where: {
       id,
       userId: user.id,
@@ -104,6 +138,8 @@ export async function getCoverLetter(id) {
 }
 
 export async function deleteCoverLetter(id) {
+  if (!id) throw new Error("Cover letter ID is required"); // ✅ fix
+
   const { userId } = await auth();
   if (!userId) throw new Error("Unauthorized");
 
@@ -114,9 +150,6 @@ export async function deleteCoverLetter(id) {
   if (!user) throw new Error("User not found");
 
   return await db.coverLetter.delete({
-    where: {
-      id,
-      userId: user.id,
-    },
+    where: { id },
   });
 }

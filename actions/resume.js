@@ -2,11 +2,30 @@
 
 import { db } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { revalidatePath } from "next/cache";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+async function callOpenRouter(prompt, model = "openai/gpt-3.5-turbo") {
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OpenRouter Error: ${res.status} - ${text}`);
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content;
+}
 
 export async function saveResume(content) {
   const { userId } = await auth();
@@ -87,9 +106,8 @@ export async function improveWithAI({ current, type }) {
   `;
 
   try {
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const improvedContent = response.text().trim();
+    const result = await callOpenRouter(prompt);
+    const improvedContent = result.trim();
     return improvedContent;
   } catch (error) {
     console.error("Error improving content:", error);

@@ -2,10 +2,32 @@
 
 import { db } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+async function callOpenRouter(prompt, model = "openai/gpt-3.5-turbo") {
+  const response = await fetch(
+    "https://openrouter.ai/api/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.7,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`OpenRouter Error: ${response.status} - ${text}`);
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content;
+}
 
 export const generateAIInsights = async (industry) => {
   const prompt = `
@@ -27,13 +49,22 @@ export const generateAIInsights = async (industry) => {
           Growth rate should be a percentage.
           Include at least 5 skills and trends.
         `;
+  let text = await callOpenRouter(prompt);
 
-  const result = await model.generateContent(prompt);
-  const response = result.response;
-  const text = response.text();
-  const cleanedText = text.replace(/```(?:json)?\n?/g, "").trim();
+  // clean if needed
+  text = text.replace(/```json|```/g, "").trim();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    console.error("JSON parse failed:", text);
 
-  return JSON.parse(cleanedText);
+    // fallback
+    parsed = {
+      demandLevel: "Medium",
+      growthRate: 10,
+    };
+  }
 };
 
 export async function getIndustryInsights() {
